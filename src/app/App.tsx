@@ -38,6 +38,12 @@ const sdkScenarioMap: Record<string, RealtimeAgent[]> = {
   patientEncounter: patientEncounterScenario,
 };
 
+const agentCompanyNames: Record<string, string> = {
+  customerServiceRetail: customerServiceRetailCompanyName,
+  patientEncounter: patientEncounterCompanyName,
+  chatSupervisor: chatSupervisorCompanyName,
+};
+
 import useAudioDownload from "./hooks/useAudioDownload";
 import { useHandleSessionHistory } from "./hooks/useHandleSessionHistory";
 
@@ -215,11 +221,7 @@ function App() {
           reorderedAgents.unshift(agent);
         }
 
-        const companyName = agentSetKey === 'customerServiceRetail'
-          ? customerServiceRetailCompanyName
-          : agentSetKey === 'patientEncounter'
-            ? patientEncounterCompanyName
-            : chatSupervisorCompanyName;
+        const companyName = agentCompanyNames[agentSetKey] ?? chatSupervisorCompanyName;
         const guardrail = createModerationGuardrail(companyName);
 
         await connect({

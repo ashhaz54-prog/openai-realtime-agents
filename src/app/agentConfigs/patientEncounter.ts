@@ -27,5 +27,3 @@ export const patientEncounterScenario = [intakeAgent, clinicianAgent];
 
 // Name of the organization represented by this agent set. Used by guardrails
 export const patientEncounterCompanyName = 'Acme Health';
-
-export default patientEncounterScenario;
