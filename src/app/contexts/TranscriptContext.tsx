@@ -20,6 +20,7 @@ type TranscriptContextValue = {
   ) => void;
   updateTranscriptMessage: (itemId: string, text: string, isDelta: boolean) => void;
   addTranscriptBreadcrumb: (title: string, data?: Record<string, any>) => void;
+  addTranscriptToolCall: (title: string, data?: Record<string, any>) => void;
   toggleTranscriptItemExpand: (itemId: string) => void;
   updateTranscriptItem: (itemId: string, updatedProperties: Partial<TranscriptItem>) => void;
 };
@@ -95,6 +96,23 @@ export const TranscriptProvider: FC<PropsWithChildren> = ({ children }) => {
     ]);
   };
 
+  const addTranscriptToolCall: TranscriptContextValue["addTranscriptToolCall"] = (title, data) => {
+    setTranscriptItems((prev) => [
+      ...prev,
+      {
+        itemId: `tool-${uuidv4()}`,
+        type: "TOOL_CALL",
+        title,
+        data,
+        expanded: false,
+        timestamp: newTimestampPretty(),
+        createdAtMs: Date.now(),
+        status: "DONE",
+        isHidden: false,
+      },
+    ]);
+  };
+
   const toggleTranscriptItemExpand: TranscriptContextValue["toggleTranscriptItemExpand"] = (itemId) => {
     setTranscriptItems((prev) =>
       prev.map((log) =>
@@ -118,6 +136,7 @@ export const TranscriptProvider: FC<PropsWithChildren> = ({ children }) => {
         addTranscriptMessage,
         updateTranscriptMessage,
         addTranscriptBreadcrumb,
+        addTranscriptToolCall,
         toggleTranscriptItemExpand,
         updateTranscriptItem,
       }}

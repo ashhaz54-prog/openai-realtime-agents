@@ -3,11 +3,13 @@
 import { useRef } from "react";
 import { useTranscript } from "@/app/contexts/TranscriptContext";
 import { useEvent } from "@/app/contexts/EventContext";
+import { useMedicalInterview } from "@/app/contexts/MedicalInterviewContext";
 
 export function useHandleSessionHistory() {
   const {
     transcriptItems,
     addTranscriptBreadcrumb,
+    addTranscriptToolCall,
     addTranscriptMessage,
     updateTranscriptMessage,
     updateTranscriptItem,
@@ -66,23 +68,36 @@ export function useHandleSessionHistory() {
   };
 
   /* ----------------------- event handlers ------------------------- */
+  const { startTimer, stopTimer, addScore } = useMedicalInterview();
 
   function handleAgentToolStart(details: any, _agent: any, functionCall: any) {
     const lastFunctionCall = extractFunctionCallByName(functionCall.name, details?.context?.history);
     const function_name = lastFunctionCall?.name;
-    const function_args = lastFunctionCall?.arguments;
+    const function_args = maybeParseJson(lastFunctionCall?.arguments);
 
-    addTranscriptBreadcrumb(
-      `function call: ${function_name}`,
-      function_args
-    );    
+    addTranscriptToolCall(`function call: ${function_name}`, function_args);
+
+    switch (function_name) {
+      case 'timer.start':
+        startTimer();
+        break;
+      case 'score.add':
+        if (function_args) addScore(function_args);
+        break;
+    }
   }
   function handleAgentToolEnd(details: any, _agent: any, _functionCall: any, result: any) {
     const lastFunctionCall = extractFunctionCallByName(_functionCall.name, details?.context?.history);
-    addTranscriptBreadcrumb(
-      `function call result: ${lastFunctionCall?.name}`,
+    const function_name = lastFunctionCall?.name;
+
+    addTranscriptToolCall(
+      `function call result: ${function_name}`,
       maybeParseJson(result)
     );
+
+    if (function_name === 'timer.stop') {
+      stopTimer();
+    }
   }
 
   function handleHistoryAdded(item: any) {
