@@ -45,4 +45,8 @@ export function registerPatientEncounterSupervisor(session: RealtimeSession) {
 }
 
 export const patientEncounter = [patientAgent];
+
+// Name of the company represented by this agent set. Used by guardrails
+export const patientEncounterCompanyName = 'General Hospital';
+
 export default patientEncounter;
