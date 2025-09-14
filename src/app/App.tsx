@@ -9,6 +9,7 @@ import Image from "next/image";
 import Transcript from "./components/Transcript";
 import Events from "./components/Events";
 import BottomToolbar from "./components/BottomToolbar";
+import MedicalInterviewControls from "./components/MedicalInterviewControls";
 
 // Types
 import { SessionStatus } from "@/app/types";
@@ -511,9 +512,11 @@ function App() {
                 </div>
               </div>
             </div>
-          )}
+      )}
         </div>
       </div>
+
+      {agentSetKey === "medicalInterview" && <MedicalInterviewControls />}
 
       <div className="flex flex-1 gap-2 px-2 overflow-hidden relative">
         <Transcript
