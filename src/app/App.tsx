@@ -31,6 +31,7 @@ import { simpleHandoffScenario } from "@/app/agentConfigs/simpleHandoff";
 import {
   patientEncounter as patientEncounterScenario,
   patientEncounterCompanyName,
+  registerPatientEncounterSupervisor,
 } from "@/app/agentConfigs/patientEncounter";
 
 // Map used by connect logic for scenarios defined via the SDK.
@@ -225,7 +226,7 @@ function App() {
             : chatSupervisorCompanyName;
         const guardrail = createModerationGuardrail(companyName);
 
-        await connect({
+        const session = await connect({
           getEphemeralKey: async () => EPHEMERAL_KEY,
           initialAgents: reorderedAgents,
           audioElement: sdkAudioElement,
@@ -234,6 +235,10 @@ function App() {
             addTranscriptBreadcrumb,
           },
         });
+
+        if (agentSetKey === 'patientEncounter' && session) {
+          registerPatientEncounterSupervisor(session);
+        }
       } catch (err) {
         console.error("Error connecting via SDK:", err);
         setSessionStatus("DISCONNECTED");
