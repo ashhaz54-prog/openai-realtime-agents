@@ -115,8 +115,8 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
       audioElement,
       extraContext,
       outputGuardrails,
-    }: ConnectOptions) => {
-      if (sessionRef.current) return; // already connected
+    }: ConnectOptions): Promise<RealtimeSession | undefined> => {
+      if (sessionRef.current) return sessionRef.current; // already connected
 
       updateStatus('CONNECTING');
 
@@ -151,6 +151,7 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
 
       await sessionRef.current.connect({ apiKey: ek });
       updateStatus('CONNECTED');
+      return sessionRef.current;
     },
     [callbacks, updateStatus],
   );
