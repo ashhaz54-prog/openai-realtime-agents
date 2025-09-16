@@ -1,16 +1,33 @@
+import type { RealtimeAgent } from '@openai/agents/realtime';
+
 import { simpleHandoffScenario } from './simpleHandoff';
 import { chatSupervisorScenario } from './chatSupervisor';
 import { patientEncounter } from './patientEncounter';
 import { medicalInterviewScenario } from './medicalInterview';
 
-import type { RealtimeAgent } from '@openai/agents/realtime';
-
-// Map of scenario key -> array of RealtimeAgent objects
 export const allAgentSets: Record<string, RealtimeAgent[]> = {
   simpleHandoff: simpleHandoffScenario,
   chatSupervisor: chatSupervisorScenario,
-  patientEncounter: patientEncounter,
+  patientEncounter,
   medicalInterview: medicalInterviewScenario,
 };
 
-export const defaultAgentSetKey = 'chatSupervisor';
+export type AgentSetKey = keyof typeof allAgentSets;
+
+export const DEFAULT_SCENARIO_KEY: AgentSetKey = 'chatSupervisor';
+
+export const defaultAgentSetKey = DEFAULT_SCENARIO_KEY;
+
+export function isAgentSetKey(value: unknown): value is AgentSetKey {
+  return (
+    typeof value === 'string' &&
+    Object.prototype.hasOwnProperty.call(allAgentSets, value)
+  );
+}
+
+export function getAgentSet(key?: string): RealtimeAgent[] {
+  if (key && isAgentSetKey(key)) {
+    return allAgentSets[key];
+  }
+  return allAgentSets[DEFAULT_SCENARIO_KEY];
+}
