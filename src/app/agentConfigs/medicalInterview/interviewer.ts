@@ -1,6 +1,6 @@
 import { RealtimeAgent, tool } from '@openai/agents/realtime';
 
-async function callInterviewerApi(action: string, args: any = {}) {
+async function callInterviewerApi(action: string, args: unknown = {}) {
   try {
     const res = await fetch('/api/interviewer', {
       method: 'POST',
@@ -32,7 +32,8 @@ export const interviewerAgent = new RealtimeAgent({
         required: ['ms'],
         additionalProperties: false,
       },
-      execute: async (input: any) => callInterviewerApi('timer.start', input),
+      execute: async (input: unknown) =>
+        callInterviewerApi('timer.start', input),
     }),
     tool({
       name: 'timer.stop',
@@ -40,6 +41,7 @@ export const interviewerAgent = new RealtimeAgent({
       parameters: {
         type: 'object',
         properties: {},
+        required: [],
         additionalProperties: false,
       },
       execute: async () => callInterviewerApi('timer.stop'),
@@ -57,7 +59,7 @@ export const interviewerAgent = new RealtimeAgent({
         required: ['domain', 'points'],
         additionalProperties: false,
       },
-      execute: async (input: any) => callInterviewerApi('score.add', input),
+      execute: async (input: unknown) => callInterviewerApi('score.add', input),
     }),
     tool({
       name: 'note.append',
@@ -70,7 +72,7 @@ export const interviewerAgent = new RealtimeAgent({
         required: ['text'],
         additionalProperties: false,
       },
-      execute: async (input: any) => callInterviewerApi('note.append', input),
+      execute: async (input: unknown) => callInterviewerApi('note.append', input),
     }),
     tool({
       name: 'export.session',
@@ -78,6 +80,7 @@ export const interviewerAgent = new RealtimeAgent({
       parameters: {
         type: 'object',
         properties: {},
+        required: [],
         additionalProperties: false,
       },
       execute: async () => callInterviewerApi('export.session'),
@@ -85,4 +88,8 @@ export const interviewerAgent = new RealtimeAgent({
   ],
 });
 
-export default interviewerAgent;
+export const medicalInterviewInterviewerAgents: RealtimeAgent[] = [
+  interviewerAgent,
+];
+
+export default medicalInterviewInterviewerAgents;

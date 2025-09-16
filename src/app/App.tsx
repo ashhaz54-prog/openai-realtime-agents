@@ -21,20 +21,13 @@ import { useRealtimeSession } from "./hooks/useRealtimeSession";
 import { createModerationGuardrail } from "@/app/agentConfigs/guardrails";
 
 // Agent configs
-import { allAgentSets, defaultAgentSetKey } from "@/app/agentConfigs";
-import { chatSupervisorScenario } from "@/app/agentConfigs/chatSupervisor";
+import {
+  DEFAULT_SCENARIO_KEY,
+  allAgentSets,
+  getAgentSet,
+  isAgentSetKey,
+} from "@/app/agentConfigs";
 import { chatSupervisorCompanyName } from "@/app/agentConfigs/chatSupervisor";
-import { simpleHandoffScenario } from "@/app/agentConfigs/simpleHandoff";
-
-// Map used by connect logic for scenarios defined via the SDK.
-const sdkScenarioMap: Record<string, RealtimeAgent[]> = {
-  simpleHandoff: simpleHandoffScenario,
-  chatSupervisor: chatSupervisorScenario,
-};
-
-const sdkScenarioCompanyNames: Record<string, string> = {
-  chatSupervisor: chatSupervisorCompanyName,
-};
 
 import useAudioDownload from "./hooks/useAudioDownload";
 import { useHandleSessionHistory } from "./hooks/useHandleSessionHistory";
@@ -63,10 +56,16 @@ function App() {
   } = useTranscript();
   const { logClientEvent, logServerEvent } = useEvent();
 
+  const [scenarioKey, setScenarioKey] = useState<string>(
+    DEFAULT_SCENARIO_KEY,
+  );
   const [selectedAgentName, setSelectedAgentName] = useState<string>("");
   const [selectedAgentConfigSet, setSelectedAgentConfigSet] = useState<
-    RealtimeAgent[] | null
-  >(null);
+    RealtimeAgent[]
+  >(() => [...getAgentSet(DEFAULT_SCENARIO_KEY)]);
+  const [connectionError, setConnectionError] = useState<string | null>(
+    null,
+  );
 
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   // Ref to identify whether the latest agent switch came from an automatic handoff
@@ -135,32 +134,47 @@ function App() {
   useHandleSessionHistory();
 
   useEffect(() => {
-    let finalAgentConfig = searchParams.get("agentConfig");
-    if (!finalAgentConfig || !allAgentSets[finalAgentConfig]) {
-      finalAgentConfig = defaultAgentSetKey;
+    const requestedKey = searchParams.get("agentConfig");
+    const validatedKey =
+      requestedKey && isAgentSetKey(requestedKey)
+        ? requestedKey
+        : DEFAULT_SCENARIO_KEY;
+
+    setScenarioKey((prev) => (prev === validatedKey ? prev : validatedKey));
+
+    if (
+      typeof window !== "undefined" &&
+      requestedKey !== validatedKey
+    ) {
       const url = new URL(window.location.toString());
-      url.searchParams.set("agentConfig", finalAgentConfig);
-      window.location.replace(url.toString());
-      return;
+      url.searchParams.set("agentConfig", validatedKey);
+      window.history.replaceState(null, "", url.toString());
     }
-
-    const agents = allAgentSets[finalAgentConfig];
-    const agentKeyToUse = agents[0]?.name || "";
-
-    setSelectedAgentName(agentKeyToUse);
-    setSelectedAgentConfigSet(agents);
   }, [searchParams]);
 
   useEffect(() => {
+    const agents = [...getAgentSet(scenarioKey)];
+    setSelectedAgentConfigSet(agents);
+    setSelectedAgentName((prev) => {
+      if (prev && agents.some((agent) => agent.name === prev)) {
+        return prev;
+      }
+      return agents[0]?.name ?? "";
+    });
+    setConnectionError(null);
+    handoffTriggeredRef.current = false;
+  }, [scenarioKey]);
+
+  useEffect(() => {
     if (selectedAgentName && sessionStatus === "DISCONNECTED") {
-      connectToRealtime();
+      void connectToRealtime();
     }
-  }, [selectedAgentName]);
+  }, [selectedAgentName, sessionStatus, scenarioKey, selectedAgentConfigSet]);
 
   useEffect(() => {
     if (
       sessionStatus === "CONNECTED" &&
-      selectedAgentConfigSet &&
+      selectedAgentConfigSet.length > 0 &&
       selectedAgentName
     ) {
       const currentAgent = selectedAgentConfigSet.find(
@@ -179,58 +193,85 @@ function App() {
     }
   }, [isPTTActive]);
 
-  const fetchEphemeralKey = async (): Promise<string | null> => {
-    logClientEvent({ url: "/session" }, "fetch_session_token_request");
-    const tokenResponse = await fetch("/api/session");
-    const data = await tokenResponse.json();
+  const createRealtimeSession = async (
+    key: string,
+  ): Promise<{ ephemeralKey: string }> => {
+    type SessionResponse = {
+      client_secret?: { value?: string };
+      error?: unknown;
+      [key: string]: unknown;
+    };
+
+    logClientEvent(
+      { url: "/realtime", scenarioKey: key },
+      "fetch_session_token_request",
+    );
+
+    const response = await fetch("/api/realtime", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ scenarioKey: key }),
+    });
+
+    const data: SessionResponse = await response.json();
     logServerEvent(data, "fetch_session_token_response");
 
-    if (!data.client_secret?.value) {
-      logClientEvent(data, "error.no_ephemeral_key");
-      console.error("No ephemeral key provided by the server");
-      setSessionStatus("DISCONNECTED");
-      return null;
+    if (!response.ok) {
+      const errorMessage =
+        typeof data.error === "string"
+          ? data.error
+          : "Failed to create realtime session";
+      throw new Error(errorMessage);
     }
 
-    return data.client_secret.value;
+    const ephemeralKey = data.client_secret?.value;
+    if (!ephemeralKey) {
+      logClientEvent(data, "error.no_ephemeral_key");
+      throw new Error("No ephemeral key provided by the server");
+    }
+
+    return { ephemeralKey };
   };
 
   const connectToRealtime = async () => {
-    const agentSetKey = searchParams.get("agentConfig") || "default";
-    if (sdkScenarioMap[agentSetKey]) {
-      if (sessionStatus !== "DISCONNECTED") return;
-      setSessionStatus("CONNECTING");
+    if (sessionStatus !== "DISCONNECTED") return;
+    if (!selectedAgentName || selectedAgentConfigSet.length === 0) return;
 
-      try {
-        const EPHEMERAL_KEY = await fetchEphemeralKey();
-        if (!EPHEMERAL_KEY) return;
+    setSessionStatus("CONNECTING");
+    setConnectionError(null);
 
-        // Ensure the selectedAgentName is first so that it becomes the root
-        const reorderedAgents = [...sdkScenarioMap[agentSetKey]];
-        const idx = reorderedAgents.findIndex((a) => a.name === selectedAgentName);
-        if (idx > 0) {
-          const [agent] = reorderedAgents.splice(idx, 1);
-          reorderedAgents.unshift(agent);
-        }
+    try {
+      const { ephemeralKey } = await createRealtimeSession(scenarioKey);
 
-        const companyName =
-          sdkScenarioCompanyNames[agentSetKey] ?? chatSupervisorCompanyName;
-        const guardrail = createModerationGuardrail(companyName);
-
-        await connect({
-          getEphemeralKey: async () => EPHEMERAL_KEY,
-          initialAgents: reorderedAgents,
-          audioElement: sdkAudioElement,
-          outputGuardrails: [guardrail],
-          extraContext: {
-            addTranscriptBreadcrumb,
-          },
-        });
-      } catch (err) {
-        console.error("Error connecting via SDK:", err);
-        setSessionStatus("DISCONNECTED");
+      const reorderedAgents = [...selectedAgentConfigSet];
+      const idx = reorderedAgents.findIndex((a) => a.name === selectedAgentName);
+      if (idx > 0) {
+        const [agent] = reorderedAgents.splice(idx, 1);
+        reorderedAgents.unshift(agent);
       }
-      return;
+
+      const guardrails =
+        scenarioKey === "chatSupervisor"
+          ? [createModerationGuardrail(chatSupervisorCompanyName)]
+          : [];
+
+      await connect({
+        getEphemeralKey: async () => ephemeralKey,
+        initialAgents: reorderedAgents,
+        audioElement: sdkAudioElement,
+        outputGuardrails: guardrails,
+        extraContext: {
+          addTranscriptBreadcrumb,
+        },
+      });
+    } catch (err) {
+      console.error("Error connecting via SDK:", err);
+      setConnectionError(
+        "Connection failed — check API key and scenario config.",
+      );
+      setSessionStatus("DISCONNECTED");
     }
   };
 
@@ -327,19 +368,33 @@ function App() {
 
   const handleAgentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newAgentConfig = e.target.value;
-    const url = new URL(window.location.toString());
-    url.searchParams.set("agentConfig", newAgentConfig);
-    window.location.replace(url.toString());
+    if (!isAgentSetKey(newAgentConfig)) return;
+
+    if (sessionStatus !== "DISCONNECTED") {
+      disconnectFromRealtime();
+    }
+
+    setScenarioKey(newAgentConfig);
+
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.toString());
+      url.searchParams.set("agentConfig", newAgentConfig);
+      window.history.replaceState(null, "", url.toString());
+    }
   };
 
   const handleSelectedAgentChange = (
     e: React.ChangeEvent<HTMLSelectElement>
   ) => {
     const newAgentName = e.target.value;
+    if (!selectedAgentConfigSet.some((agent) => agent.name === newAgentName)) {
+      return;
+    }
     // Reconnect session with the newly selected agent as root so that tool
     // execution works correctly.
     disconnectFromRealtime();
     setSelectedAgentName(newAgentName);
+    setConnectionError(null);
     // connectToRealtime will be triggered by effect watching selectedAgentName
   };
 
@@ -430,8 +485,6 @@ function App() {
     };
   }, [sessionStatus]);
 
-  const agentSetKey = searchParams.get("agentConfig") || "default";
-
   return (
     <div className="text-base flex flex-col h-screen bg-gray-100 text-gray-800 relative">
       <div className="p-5 text-lg font-semibold flex justify-between items-center">
@@ -458,7 +511,7 @@ function App() {
           </label>
           <div className="relative inline-block">
             <select
-              value={agentSetKey}
+              value={scenarioKey}
               onChange={handleAgentChange}
               className="appearance-none border border-gray-300 rounded-lg text-base px-2 py-1 pr-8 cursor-pointer font-normal focus:outline-none"
             >
@@ -479,7 +532,7 @@ function App() {
             </div>
           </div>
 
-          {agentSetKey && (
+          {selectedAgentConfigSet.length > 0 && (
             <div className="flex items-center ml-6">
               <label className="flex items-center text-base gap-1 mr-2 font-medium">
                 Agent
@@ -490,7 +543,7 @@ function App() {
                   onChange={handleSelectedAgentChange}
                   className="appearance-none border border-gray-300 rounded-lg text-base px-2 py-1 pr-8 cursor-pointer font-normal focus:outline-none"
                 >
-                  {selectedAgentConfigSet?.map((agent) => (
+                  {selectedAgentConfigSet.map((agent) => (
                     <option key={agent.name} value={agent.name}>
                       {agent.name}
                     </option>
@@ -514,6 +567,12 @@ function App() {
           )}
         </div>
       </div>
+
+      {connectionError && (
+        <div className="mx-5 mb-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {connectionError}
+        </div>
+      )}
 
       <div className="flex flex-1 gap-2 px-2 overflow-hidden relative">
         <Transcript
